@@ -1,6 +1,6 @@
 import { InternalError } from "@src/util/errors/internal-error";
-import { AxiosError, AxiosStatic } from "axios"
 import config, { IConfig } from 'config'
+import * as HTTPUtil from '@src/util/request'
 
 export interface StormGlassPointSource {
     [key: string] : number;
@@ -32,6 +32,12 @@ export interface ForecastPoint {
     windSpeed: number;
 }
 
+export class StormGlassUnexpectedResponseError extends InternalError {
+    constructor(message: string) {
+      super(message);
+    }
+  }
+
 export class ClientRequestError extends InternalError {
     constructor(message: string ){
         const internalMessage = `Unexpected error when trying to communicate to StormGlass`
@@ -52,10 +58,9 @@ export class StormGlass {
     readonly stormGlassAPIParams = 'swellDirection,swellHeight,swellPeriod,waveDirection,waveHeight,windDirection,windSpeed'
     readonly stormGlassAPISource = 'noaa'
 
-    constructor(protected request: AxiosStatic) {}  
+    constructor(protected request = new HTTPUtil.Request()) {}  
 
     public async fetchPoints(lat: number, lng: number): Promise <ForecastPoint[]> {
-        console.log(stormglassResourceConfig)
         try{
             const response = await this.request.get<StormGlassForecastResponse>(
                 `
@@ -68,13 +73,16 @@ export class StormGlass {
             )
             return this.normalizeResponse(response.data)
         }catch(err) {
-            const axiosError = err as AxiosError
-              if(axiosError.response && axiosError.response.status) {
+              if(err instanceof Error && HTTPUtil.Request.isRequestError(err)) {
+                const error = HTTPUtil.Request.extractErrorData(err);
                 throw new StormGlassResponseError(
-                   `Error: ${JSON.stringify(axiosError.response.data)} Code: ${axiosError.response.status}`
+                   `Error: ${JSON.stringify(error.data)} Code: ${error.status}`
                  )
              }      
-             throw new ClientRequestError(axiosError.message)
+            /**
+            * All the other errors will fallback to a generic client error
+            */
+             throw new ClientRequestError(JSON.stringify(err));
            }
     }   
 
